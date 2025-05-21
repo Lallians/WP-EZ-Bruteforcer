@@ -25,7 +25,7 @@ class BruteForcer:
     verify = not getConf('dev.ignoreCertificate')  # Useful for local testing.
 
     def __init__(self, domain):
-        self.domain = domain
+        self.domain = utils.normalize_domain(domain)
     
 
     # Handles the all the logic
@@ -67,7 +67,7 @@ class BruteForcer:
                 return False
         except requests.exceptions.RequestException as e:
             print(e)
-            return false
+            return False
     
         # Then check if XMLRPC is available too
         try:
