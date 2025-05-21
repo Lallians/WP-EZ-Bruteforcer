@@ -148,8 +148,13 @@ class BruteForcer:
             with open("log/requests.log", "w", encoding="utf-8") as file:
                 file.write("")
 
+        files = glob.glob("dictionnaries/*.txt")
+        if len(files) <= 0:
+            print("❌ Error - No dictionnary found. Please prodive at least one!")
+            die()
+
         # We read the available dictionnaries
-        for file_path in glob.glob("dictionnaries/*.txt"):
+        for file_path in files:
             print(f"Reading {file_path}")
             
             # We read lines one by one to avoid loading entire huge files that can cause memory issues
