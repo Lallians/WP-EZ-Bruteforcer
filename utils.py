@@ -1,3 +1,10 @@
+"""
+This script is for educational and authorized testing only.
+Unauthorized access to systems you do not own is illegal.
+
+Author assumes no liability for any misuse or damage.
+"""
+
 import sys
 from pprint import pprint
 
