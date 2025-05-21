@@ -1,0 +1,5 @@
+/dictionnaries/*
+!/dictionnaries/.gitkeep
+/log/*
+!/log/.gitkeep
+/__pycache__/*
